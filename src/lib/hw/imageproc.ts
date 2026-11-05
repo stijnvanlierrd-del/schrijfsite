@@ -380,6 +380,10 @@ export interface InkOptions {
   minArea?: number;
   borderMinArea?: number;
   bg?: number;
+  /** Achtergrondhelderheid per pixel (bijv. bij schaduw op een foto); gaat voor `bg`. */
+  bgMap?: Float32Array;
+  /** Ruitjes- of lijntjespapier: de donkerte van de lijnen per uitsnede schatten en eraf trekken. */
+  ruled?: boolean;
   /** Gebieden waar alleen inkt boven `below` meetelt (bv. het grijze label of een hulplijn in een vak). */
   suppress?: { x: number; y: number; w: number; h: number; below: number }[];
   /** Eigen selectie van inktvlekken (vervangt de standaard randregels). */
@@ -395,27 +399,106 @@ export interface InkResult {
   area: number;
 }
 
-const smooth = (d: number) => {
+export const smooth = (d: number) => {
   const t = Math.max(0, Math.min(1, (d - 0.1) / 0.45));
   return t * t * (3 - 2 * t) * 255;
 };
 
 /** Zet een luminantiebeeld om in inkt (alfa) met hysterese-drempels; ruis en randresten worden verwijderd. */
-export function extractInk(L: Float32Array, w: number, h: number, opts: InkOptions = {}): InkResult | null {
-  const strong = opts.strong ?? 0.4;
-  const weak = opts.weak ?? 0.22;
-  const bg = opts.bg ?? percentile(L, 0.9);
-  if (bg < 40) return null;
-  const d = new Float32Array(w * h);
-  for (let i = 0; i < d.length; i++) d[i] = Math.max(0, Math.min(1, (bg - L[i]) / bg));
-  for (const box of opts.suppress ?? []) {
-    for (let y = Math.max(0, Math.floor(box.y)); y < Math.min(h, Math.ceil(box.y + box.h)); y++) {
-      for (let x = Math.max(0, Math.floor(box.x)); x < Math.min(w, Math.ceil(box.x + box.w)); x++) {
-        const i = y * w + x;
-        if (d[i] < box.below) d[i] = 0;
-      }
+/**
+ * Lokale papierhelderheid: maximum per blok (inkt en lijnen zijn donkerder dan papier), licht vervaagd
+ * en bilineair teruggeschaald. Zo tellen schaduwranden en verloop niet als inkt.
+ */
+export function localBackground(L: Float32Array, w: number, h: number, block: number): Float32Array {
+  const b = Math.max(4, Math.round(block));
+  const bw = Math.ceil(w / b);
+  const bh = Math.ceil(h / b);
+  const mx = new Float32Array(bw * bh);
+  for (let y = 0; y < h; y++) {
+    const by = Math.floor(y / b) * bw;
+    for (let x = 0; x < w; x++) {
+      const v = L[y * w + x];
+      const k = by + Math.floor(x / b);
+      if (v > mx[k]) mx[k] = v;
     }
   }
+  // Uitschieters (glans) dempen: 3×3-mediaan op het blokraster.
+  const sm = new Float32Array(bw * bh);
+  const win: number[] = [];
+  for (let y = 0; y < bh; y++)
+    for (let x = 0; x < bw; x++) {
+      win.length = 0;
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const yy = y + dy;
+          const xx = x + dx;
+          if (yy >= 0 && yy < bh && xx >= 0 && xx < bw) win.push(mx[yy * bw + xx]);
+        }
+      win.sort((a, c) => a - c);
+      sm[y * bw + x] = win[Math.floor(win.length / 2)];
+    }
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const fy = Math.max(0, Math.min(bh - 1, (y + 0.5) / b - 0.5));
+    const y0 = Math.floor(fy);
+    const y1 = Math.min(bh - 1, y0 + 1);
+    const ty = fy - y0;
+    for (let x = 0; x < w; x++) {
+      const fx = Math.max(0, Math.min(bw - 1, (x + 0.5) / b - 0.5));
+      const x0 = Math.floor(fx);
+      const x1 = Math.min(bw - 1, x0 + 1);
+      const tx = fx - x0;
+      const top = sm[y0 * bw + x0] * (1 - tx) + sm[y0 * bw + x1] * tx;
+      const bot = sm[y1 * bw + x0] * (1 - tx) + sm[y1 * bw + x1] * tx;
+      out[y * w + x] = top * (1 - ty) + bot * ty;
+    }
+  }
+  return out;
+}
+
+function median(values: Float32Array, n: number): number {
+  const a = values.slice(0, n).sort();
+  return a[Math.floor(n / 2)] ?? 0;
+}
+
+/**
+ * Ruitjes/lijntjes wegfilteren. Een gedrukte lijn loopt door de hele uitsnede, dus de mediaan van een
+ * smalle horizontale of verticale band ligt op de donkerte van de lijn (een letter beslaat zelden de
+ * helft van een band). Die donkerte (plus marge) wordt van alle pixels afgetrokken.
+ */
+export function removeRuling(d: Float32Array, w: number, h: number): number {
+  if (w < 6 || h < 6) return 0;
+  const buf = new Float32Array(Math.max(w, h));
+  let level = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let m = d[y * w + x];
+      if (y > 0) m = Math.max(m, d[(y - 1) * w + x]);
+      if (y < h - 1) m = Math.max(m, d[(y + 1) * w + x]);
+      buf[x] = m;
+    }
+    level = Math.max(level, median(buf, w));
+  }
+  for (let x = 0; x < w; x++) {
+    for (let y = 0; y < h; y++) {
+      let m = d[y * w + x];
+      if (x > 0) m = Math.max(m, d[y * w + x - 1]);
+      if (x < w - 1) m = Math.max(m, d[y * w + x + 1]);
+      buf[y] = m;
+    }
+    level = Math.max(level, median(buf, h));
+  }
+  // Nooit meer weghalen dan ruim de helft van de echte inkt (bv. bij een lange streep van een T).
+  const ink = percentile(Float32Array.from(d, (v) => v * 255), 0.995) / 255;
+  level = Math.min(level, ink * 0.62);
+  if (level < 0.1) return 0;
+  const cut = Math.min(0.9, level + 0.04);
+  for (let i = 0; i < d.length; i++) d[i] = Math.max(0, (d[i] - cut) / (1 - cut));
+  return level;
+}
+
+/** Hysterese: pixels boven `strong` zijn inkt, en alles boven `weak` dat daaraan vastzit ook. */
+export function hysteresisMask(d: Float32Array, w: number, h: number, strong: number, weak: number): Uint8Array {
   const mask = new Uint8Array(w * h);
   const stack = new Int32Array(w * h);
   for (let start = 0; start < d.length; start++) {
@@ -442,6 +525,33 @@ export function extractInk(L: Float32Array, w: number, h: number, opts: InkOptio
       }
     }
   }
+  return mask;
+}
+
+export function extractInk(L: Float32Array, w: number, h: number, opts: InkOptions = {}): InkResult | null {
+  const strong = opts.strong ?? 0.4;
+  const weak = opts.weak ?? 0.22;
+  const d = new Float32Array(w * h);
+  if (opts.bgMap) {
+    for (let i = 0; i < d.length; i++) {
+      const b = Math.max(40, opts.bgMap[i]);
+      d[i] = Math.max(0, Math.min(1, (b - L[i]) / b));
+    }
+  } else {
+    const bg = opts.bg ?? percentile(L, 0.9);
+    if (bg < 40) return null;
+    for (let i = 0; i < d.length; i++) d[i] = Math.max(0, Math.min(1, (bg - L[i]) / bg));
+  }
+  if (opts.ruled) removeRuling(d, w, h);
+  for (const box of opts.suppress ?? []) {
+    for (let y = Math.max(0, Math.floor(box.y)); y < Math.min(h, Math.ceil(box.y + box.h)); y++) {
+      for (let x = Math.max(0, Math.floor(box.x)); x < Math.min(w, Math.ceil(box.x + box.w)); x++) {
+        const i = y * w + x;
+        if (d[i] < box.below) d[i] = 0;
+      }
+    }
+  }
+  const mask = hysteresisMask(d, w, h, strong, weak);
   const { labels, comps } = labelComponents(mask, w, h);
   const minArea = opts.minArea ?? 8;
   const borderMinArea = opts.borderMinArea ?? 60;

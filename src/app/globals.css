@@ -826,6 +826,7 @@ input[type="radio"] {
   justify-content: center;
   background: linear-gradient(to bottom, transparent 69%, #9ec9ee 69%, #9ec9ee calc(69% + 1px), transparent calc(69% + 1px));
   position: relative;
+  overflow: hidden;
 }
 .glyph-view img {
   position: absolute;
@@ -834,13 +835,15 @@ input[type="radio"] {
 .glyph-foot {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 6px;
+  gap: 4px;
+  padding: 5px 4px;
+  min-width: 0;
   border-top: 1px solid var(--ink);
   background: var(--sheet);
 }
 .glyph-foot input[type="text"] {
-  width: 40px;
+  width: 34px;
+  min-width: 0;
   font: 20px var(--body);
   text-align: center;
   border: 1px solid var(--grey-2);
@@ -855,7 +858,7 @@ input[type="radio"] {
   line-height: 1;
   cursor: pointer;
   color: var(--grey);
-  padding: 4px;
+  padding: 2px 3px;
 }
 .glyph-foot .x:hover {
   color: var(--red);
@@ -1276,4 +1279,169 @@ input[type="radio"] {
   .no-print {
     display: none !important;
   }
+}
+
+/* ---------- Teken bewerken (venster) ---------- */
+.glyph-view--btn {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.glyph-view--btn:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: -3px;
+}
+.glyph-edit {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 14px;
+  color: var(--grey-2);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.glyph-view--btn:hover .glyph-edit,
+.glyph-view--btn:focus-visible .glyph-edit {
+  opacity: 1;
+  color: var(--red);
+}
+.glyph-foot .x--edit {
+  margin-left: auto;
+  font-size: 15px;
+}
+.glyph-foot .x--edit + .x {
+  margin-left: 0;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(35, 35, 35, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  overflow-y: auto;
+}
+.modal {
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  box-shadow: 10px 10px 0 var(--ink);
+  width: min(900px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  outline: none;
+}
+.modal-head {
+  position: relative;
+  padding: 14px 52px 12px 20px;
+  border-bottom: 3px double var(--ink);
+}
+.modal-head h2 {
+  margin: 4px 0 0;
+  font: 400 34px/1.1 var(--display);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.modal-x {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: none;
+  border: 0;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--ink);
+  padding: 4px 8px;
+}
+.modal-x:hover {
+  color: var(--red);
+}
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ink);
+  background: var(--sheet);
+}
+.ge-char {
+  width: 56px;
+  font: 30px var(--body);
+  text-align: center;
+  border: 1.5px solid var(--ink);
+  background: #fff;
+  padding: 0;
+}
+.ge-body {
+  display: grid;
+  grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
+  gap: 22px;
+  padding: 18px 20px;
+}
+@media (max-width: 760px) {
+  .ge-body {
+    grid-template-columns: 1fr;
+  }
+}
+.ge-canvas {
+  width: 100%;
+  max-width: 400px;
+  aspect-ratio: 1;
+  display: block;
+  border: 1.5px solid var(--ink);
+  background: #fff;
+  touch-action: none;
+  cursor: crosshair;
+}
+.ge-canvas--schuif {
+  cursor: move;
+}
+.ge-tools {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+.ge-group {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.ge-group:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.ge-label {
+  display: block;
+  font: 800 11px/1 var(--sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.ge-seg {
+  display: inline-flex;
+  border: 1.5px solid var(--ink);
+}
+.ge-seg button {
+  font: 700 13px/1 var(--sans);
+  padding: 9px 14px;
+  border: 0;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+.ge-seg button + button {
+  border-left: 1.5px solid var(--ink);
+}
+.ge-seg button[aria-checked="true"] {
+  background: var(--ink);
+  color: var(--paper);
 }

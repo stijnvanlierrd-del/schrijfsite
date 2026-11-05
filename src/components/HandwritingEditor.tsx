@@ -10,6 +10,8 @@ import { loadBank, renderDocument, type GlyphBank } from "@/lib/hw/render";
 import { DEFAULT_SETTINGS, normalizeSettings, type GlyphData, type HandwritingSettings } from "@/lib/hw/types";
 import { cssFontFamily, ensureFonts } from "@/lib/fonts-client";
 import { AnalysisArticle, type Analysis } from "./AnalysisArticle";
+import { GlyphEditor, type EditorInput } from "./capture/GlyphEditor";
+import { rawToGlyphData } from "@/lib/hw/browser";
 import { Star } from "./Ornaments";
 
 interface Loaded {
@@ -43,6 +45,8 @@ export function HandwritingEditor({ id, justSaved }: { id: string; justSaved: bo
     justSaved ? { ok: true, text: "Opgeslagen! Uw letters staan veilig in uw account." } : null,
   );
   const preview = useRef<HTMLDivElement>(null);
+  const [editing, setEditing] = useState<{ id: string; input: EditorInput } | null>(null);
+  const [savingGlyph, setSavingGlyph] = useState(false);
 
   const load = useCallback(async () => {
     const d = await api<Loaded>(`/api/handwritings/${id}`);
@@ -146,6 +150,35 @@ export function HandwritingEditor({ id, justSaved }: { id: string; justSaved: bo
     }
   }
 
+  async function openEditor(g: GlyphData & { id: string }) {
+    try {
+      const img = new Image();
+      img.src = `data:image/png;base64,${g.png}`;
+      await img.decode();
+      setEditing({
+        id: g.id,
+        input: { ch: g.ch, image: img, width: g.width, height: g.height, baseline: g.baseline, source: g.source },
+      });
+    } catch {
+      setNotice({ ok: false, text: "Deze variant kon niet geopend worden." });
+    }
+  }
+
+  async function saveEdited(raw: Parameters<typeof rawToGlyphData>[0]) {
+    if (!editing) return;
+    setSavingGlyph(true);
+    try {
+      await api(`/api/handwritings/${id}/glyphs/${editing.id}`, { method: "PUT", body: { glyph: rawToGlyphData(raw) } });
+      setEditing(null);
+      await load();
+      setNotice({ ok: true, text: `Teken ‘${raw.ch}’ bijgewerkt.` });
+    } catch (err) {
+      setNotice({ ok: false, text: (err as Error).message });
+    } finally {
+      setSavingGlyph(false);
+    }
+  }
+
   async function deleteHandwriting() {
     if (!window.confirm("Dit handschrift en al zijn tekens definitief verwijderen?")) return;
     try {
@@ -233,8 +266,9 @@ export function HandwritingEditor({ id, justSaved }: { id: string; justSaved: bo
               type="button"
               className="variant"
               aria-pressed={selected.has(g.id)}
-              title="Klik om te selecteren"
+              title="Klik om te selecteren · dubbelklik om te bewerken"
               onClick={() => toggle(g.id)}
+              onDoubleClick={() => openEditor(g)}
               style={{ width: Math.max(24, g.width * 0.42 + 8) }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -394,8 +428,19 @@ export function HandwritingEditor({ id, justSaved }: { id: string; justSaved: bo
                 </button>
               </>
             ) : (
-              <span className="small muted">Klik op varianten om ze te selecteren.</span>
+              <span className="small muted">Klik op een variant om hem te selecteren; dubbelklik om hem te draaien, gummen of bij te tekenen.</span>
             )}
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              disabled={selected.size !== 1 || busy !== null}
+              onClick={() => {
+                const g = data.glyphs.find((x) => selected.has(x.id));
+                if (g) openEditor(g);
+              }}
+            >
+              Bewerk variant
+            </button>
             <button type="button" className="btn btn--red btn--sm" onClick={deleteSelected} disabled={!selected.size || busy !== null}>
               Verwijder selectie
             </button>
@@ -414,6 +459,15 @@ export function HandwritingEditor({ id, justSaved }: { id: string; justSaved: bo
           </div>
         ) : null}
       </section>
+      {editing ? (
+        <GlyphEditor
+          key={editing.id}
+          input={editing.input}
+          saving={savingGlyph}
+          onCancel={() => setEditing(null)}
+          onSave={saveEdited}
+        />
+      ) : null}
     </div>
   );
 }

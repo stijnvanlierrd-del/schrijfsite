@@ -18,8 +18,16 @@ export function rawToGlyphData(g: RawGlyph): GlyphData {
   return { ch: g.ch, png, width: g.width, height: g.height, baseline: Math.round(g.baseline * 10) / 10, source: g.source };
 }
 
-/** Leest een foto in (met EXIF-oriëntatie), verkleint tot `maxDim` en levert grijswaarden plus een JPEG voor de AI. */
-export async function loadPhoto(file: File, maxDim = 3000): Promise<{ gray: Gray; aiJpeg: string; preview: string }> {
+export interface LoadedPhoto {
+  /** Kleurenfoto op werkresolutie (rechtop zoals de gebruiker hem zag). */
+  canvas: HTMLCanvasElement;
+  gray: Gray;
+  aiJpeg: string;
+  preview: string;
+}
+
+/** Leest een foto in (met EXIF-oriëntatie) en verkleint tot `maxDim`. */
+export async function loadPhoto(file: File, maxDim = 3000): Promise<LoadedPhoto> {
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
@@ -37,6 +45,28 @@ export async function loadPhoto(file: File, maxDim = 3000): Promise<{ gray: Gray
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(bitmap, 0, 0, w, h);
   bitmap.close?.();
+  return photoFromCanvas(canvas);
+}
+
+/** Draait een foto een aantal kwartslagen met de klok mee. */
+export function rotatePhoto(photo: LoadedPhoto, quarterTurns: number): LoadedPhoto {
+  const q = ((quarterTurns % 4) + 4) % 4;
+  if (!q) return photo;
+  const src = photo.canvas;
+  const c = document.createElement("canvas");
+  c.width = q % 2 ? src.height : src.width;
+  c.height = q % 2 ? src.width : src.height;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
+  ctx.translate(c.width / 2, c.height / 2);
+  ctx.rotate((q * Math.PI) / 2);
+  ctx.drawImage(src, -src.width / 2, -src.height / 2);
+  return photoFromCanvas(c);
+}
+
+function photoFromCanvas(canvas: HTMLCanvasElement): LoadedPhoto {
+  const w = canvas.width;
+  const h = canvas.height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
   const gray = rgbaToGray(ctx.getImageData(0, 0, w, h).data, w, h);
   const aiScale = Math.min(1, 2048 / Math.max(w, h));
   const ai = document.createElement("canvas");
@@ -49,11 +79,14 @@ export async function loadPhoto(file: File, maxDim = 3000): Promise<{ gray: Gray
   pv.width = Math.round(w * pScale);
   pv.height = Math.round(h * pScale);
   pv.getContext("2d")!.drawImage(canvas, 0, 0, pv.width, pv.height);
-  return { gray, aiJpeg, preview: pv.toDataURL("image/jpeg", 0.8) };
+  return { canvas, gray, aiJpeg, preview: pv.toDataURL("image/jpeg", 0.8) };
 }
 
-/** Contactblad met alle tekens + bijschrift "index: teken" (voor de AI-analyse). */
-export function contactSheet(glyphs: { ch: string; canvas: CanvasImageSource; w: number; h: number; baseline: number }[]): string {
+/** Contactblad met alle tekens + bijschrift (voor de AI). Met `numbersOnly` alleen het vakjesnummer. */
+export function contactSheet(
+  glyphs: { ch: string; canvas: CanvasImageSource; w: number; h: number; baseline: number }[],
+  opts: { numbersOnly?: boolean; guides?: boolean } = {},
+): string {
   const cols = 10;
   const cw = 120;
   const chh = 150;
@@ -69,13 +102,29 @@ export function contactSheet(glyphs: { ch: string; canvas: CanvasImageSource; w:
     const y = Math.floor(i / cols) * chh;
     const s = Math.min(1, 96 / CAP_PX, (cw - 10) / g.w, (chh - 30) / g.h) * 0.95;
     const baseY = y + 96;
+    if (opts.guides) {
+      const capS = Math.min(1, 96 / CAP_PX) * 0.95;
+      ctx.strokeStyle = "#7fb2e5";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x + 4, baseY + 0.5);
+      ctx.lineTo(x + cw - 4, baseY + 0.5);
+      ctx.stroke();
+      ctx.strokeStyle = "#c8c8c8";
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x + 4, baseY - CAP_PX * capS + 0.5);
+      ctx.lineTo(x + cw - 4, baseY - CAP_PX * capS + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     ctx.drawImage(g.canvas, x + cw / 2 - (g.w * s) / 2, baseY - g.baseline * s, g.w * s, g.h * s);
     ctx.strokeStyle = "#e3e3e3";
     ctx.strokeRect(x + 0.5, y + 0.5, cw - 1, chh - 1);
     ctx.fillStyle = "#8a8a8a";
     ctx.font = "13px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(`${i}: ${g.ch}`, x + cw / 2, y + chh - 10);
+    ctx.fillText(opts.numbersOnly ? `${i}` : `${i}: ${g.ch}`, x + cw / 2, y + chh - 10);
   });
   return c.toDataURL("image/jpeg", 0.85);
 }

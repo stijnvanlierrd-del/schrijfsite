@@ -1,6 +1,9 @@
 "use client";
 
+import { useState } from "react";
+import { rawToCanvas } from "@/lib/hw/browser";
 import { ALL_CHARS } from "@/lib/hw/charset";
+import { GlyphEditor } from "./GlyphEditor";
 import { GlyphImage } from "./GlyphImage";
 import type { ReviewItem } from "./types";
 
@@ -17,6 +20,8 @@ export function GlyphReview({
   const have = new Set([...existingChars, ...included.map((i) => i.ch)]);
   const missing = [...ALL_CHARS].filter((c) => !have.has(c));
   const update = (key: string, patch: Partial<ReviewItem>) => onChange(items.map((i) => (i.key === key ? { ...i, ...patch } : i)));
+  const [editing, setEditing] = useState<string | null>(null);
+  const current = items.find((i) => i.key === editing);
 
   if (!items.length) return null;
   return (
@@ -28,7 +33,8 @@ export function GlyphReview({
             {included.length} tekens gevonden
           </h2>
           <p className="muted small" style={{ margin: 0 }}>
-            Klopt een letter niet? Pas het teken aan in het vakje eronder, of zet het vinkje uit om hem over te slaan.
+            Klopt een letter niet? Klik op de letter om hem te draaien, een stukje weg te gummen of bij te tekenen. Pas het teken
+            aan in het vakje eronder, of zet het vinkje uit om hem over te slaan.
           </p>
         </div>
         <div className="btn-row">
@@ -59,9 +65,12 @@ export function GlyphReview({
                 !
               </span>
             ) : null}
-            <div className="glyph-view">
+            <button type="button" className="glyph-view glyph-view--btn" onClick={() => setEditing(it.key)} title="Bewerken">
               <GlyphImage url={it.url} width={it.raw.width} height={it.raw.height} baseline={it.raw.baseline} alt={`Teken ${it.ch}`} />
-            </div>
+              <span className="glyph-edit" aria-hidden="true">
+                ✎
+              </span>
+            </button>
             <div className="glyph-foot">
               <input
                 type="checkbox"
@@ -79,6 +88,9 @@ export function GlyphReview({
                   update(it.key, { ch: v });
                 }}
               />
+              <button type="button" className="x x--edit" aria-label={`Bewerk ${it.ch}`} onClick={() => setEditing(it.key)}>
+                ✎
+              </button>
               <button type="button" className="x" aria-label={`Verwijder ${it.ch}`} onClick={() => onChange(items.filter((i) => i.key !== it.key))}>
                 ×
               </button>
@@ -86,6 +98,24 @@ export function GlyphReview({
           </div>
         ))}
       </div>
+      {current ? (
+        <GlyphEditor
+          key={current.key}
+          input={{
+            ch: current.ch,
+            image: rawToCanvas(current.raw),
+            width: current.raw.width,
+            height: current.raw.height,
+            baseline: current.raw.baseline,
+            source: current.raw.source,
+          }}
+          onCancel={() => setEditing(null)}
+          onSave={(g) => {
+            update(current.key, { raw: g, ch: g.ch, url: rawToCanvas(g).toDataURL("image/png"), include: true, warning: undefined });
+            setEditing(null);
+          }}
+        />
+      ) : null}
     </section>
   );
 }

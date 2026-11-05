@@ -24,6 +24,8 @@ export async function generateJson<T>(opts: {
   schema: object;
   temperature?: number;
   deadlineMs?: number;
+  /** Maximale duur van één aanroep (standaard 50 s). */
+  callTimeoutMs?: number;
 }): Promise<{ data: T; model: string }> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new HttpError(503, "De AI-analyse is nog niet ingesteld op de server.");
@@ -42,7 +44,7 @@ export async function generateJson<T>(opts: {
 
     const call = async () => {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), Math.min(deadline - Date.now(), 50_000));
+      const timer = setTimeout(() => ctrl.abort(), Math.min(deadline - Date.now(), opts.callTimeoutMs ?? 50_000));
       try {
         return await fetch(`${ENDPOINT}/${encodeURIComponent(model)}:generateContent`, {
           method: "POST",
@@ -60,6 +62,11 @@ export async function generateJson<T>(opts: {
       let res = await call();
       if (res.status === 400 && generationConfig.thinkingConfig) {
         delete generationConfig.thinkingConfig;
+        res = await call();
+      }
+      // Overbelast: na een korte pauze hetzelfde (betere) model nog eens proberen voordat we overstappen.
+      for (let attempt = 0; (res.status === 503 || res.status === 429) && attempt < 2 && deadline - Date.now() > 30_000; attempt++) {
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
         res = await call();
       }
       if (!res.ok) {
