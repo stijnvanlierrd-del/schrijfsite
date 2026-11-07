@@ -1,0 +1,15 @@
+Sneeuw voor je Mac ❄
+
+INSTALLEREN
+1. Sleep "Sneeuw" naar de map "Applications" (Programma's).
+2. Deze app is niet bij Apple geregistreerd. De eerste keer opent hij daarom niet met een dubbelklik:
+   - Klik met de rechtermuisknop (of ctrl-klik) op Sneeuw in Programma's en kies "Open", daarna nogmaals "Open".
+   - Lukt dat niet (nieuwere macOS)? Open Systeeminstellingen > Privacy en beveiliging en klik onderaan op "Open toch".
+   - Of typ in Terminal:  xattr -cr /Applications/Sneeuw.app
+
+GEBRUIK
+- Sneeuw dwarrelt over je scherm en hoopt zich op boven op je vensters en onderaan het scherm.
+- Verschuif een venster of maak het smaller: de sneeuw die erop lag valt eraf.
+- Beweeg je muis door de sneeuw om er sneeuwballen van te rollen.
+- Pak een sneeuwbal vast en gooi hem weg. Hard tegen een venster? Dan spat hij uiteen.
+- Via het sneeuwvlokje in de menubalk kies je de hoeveelheid sneeuw, wind aan of uit, sneeuw wegvegen, of stoppen.
